@@ -7503,12 +7503,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function() {
-	        var idStart = 0x0907;
+	    var idStart = 0x0907;
 
-	        return function () {
-	            return 'zr_' + (idStart++);
-	        };
-	    }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	    return function () {
+	        return idStart++;
+	    };
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
