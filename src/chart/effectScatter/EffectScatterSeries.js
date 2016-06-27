@@ -39,7 +39,12 @@ define(function (require) {
                 // Ripple num
                 rippleNum: 3,
                 // Ripple width
-                rippleWidth: 1
+                rippleWidth: 1,
+                // Center Point Effect
+                centerPoint: {
+                    show: false,
+                    scale: 4
+                }
             },
 
             // Cartesian coordinate system

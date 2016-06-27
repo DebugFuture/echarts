@@ -24,8 +24,8 @@ define(function (require) {
                 z: effectCfg.z,
                 zlevel: effectCfg.zlevel,
                 style: {
-                    stroke: effectCfg.brushType === 'stroke' ? effectCfg.color : null,
-                    fill: effectCfg.brushType === 'fill' ? effectCfg.color : null
+                    stroke: effectCfg.brushType === 'stroke' || ripplePath.brushType === 'stroke' ? effectCfg.color : null,
+                    fill: effectCfg.brushType === 'fill' || ripplePath.brushType === 'fill' ? effectCfg.color : null
                 }
             });
         });
@@ -92,6 +92,39 @@ define(function (require) {
                 .start();
 
             rippleGroup.add(ripplePath);
+        }
+        
+        // Center Point Effect
+        if (effectCfg.centerPoint.show) {
+            var centerPointPath = symbolUtil.createSymbol(
+                symbolType, -0.5, -0.5, 1, 1, color
+            );
+            
+            centerPointPath.attr({
+                style: {
+                    strokeNoScale: true
+                },
+                z2: 99,
+                silent: true,
+                scale: [1, 1]
+            });
+
+            centerPointPath.animate('', true)
+                .when(effectCfg.period / 4, {
+                    scale: [effectCfg.centerPoint.scale, effectCfg.centerPoint.scale]
+                })
+                .when(effectCfg.period / 2, {
+                    scale: [1, 1]
+                })
+                .when(effectCfg.period, {
+                    scale: [1, 1]
+                })
+                .start();
+                
+            // 
+            centerPointPath.brushType = 'fill';
+
+            rippleGroup.add(centerPointPath);
         }
 
         updateRipplePath(rippleGroup, effectCfg);
@@ -177,6 +210,12 @@ define(function (require) {
         effectCfg.zlevel = itemModel.getShallow('zlevel') || 0;
         effectCfg.symbolType = symbolType;
         effectCfg.color = color;
+        
+        // Center Point Effect
+        effectCfg.centerPoint = {
+            show: itemModel.get('rippleEffect.centerPoint.show'),
+            scale: itemModel.get('rippleEffect.centerPoint.scale')
+        };
 
         this.off('mouseover').off('mouseout').off('emphasis').off('normal');
 
