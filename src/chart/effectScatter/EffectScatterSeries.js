@@ -41,7 +41,7 @@ define(function (require) {
                 // Ripple width
                 rippleWidth: 1,
                 // Center Point Effect
-                centerPoint: {
+                centerEffect: {
                     show: false,
                     scale: 4
                 }

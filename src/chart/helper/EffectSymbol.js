@@ -95,7 +95,7 @@ define(function (require) {
         }
         
         // Center Point Effect
-        if (effectCfg.centerPoint.show) {
+        if (effectCfg.centerEffect.show) {
             var centerPointPath = symbolUtil.createSymbol(
                 symbolType, -0.5, -0.5, 1, 1, color
             );
@@ -111,7 +111,7 @@ define(function (require) {
 
             centerPointPath.animate('', true)
                 .when(effectCfg.period / 4, {
-                    scale: [effectCfg.centerPoint.scale, effectCfg.centerPoint.scale]
+                    scale: [effectCfg.centerEffect.scale, effectCfg.centerEffect.scale]
                 })
                 .when(effectCfg.period / 2, {
                     scale: [1, 1]
@@ -212,9 +212,9 @@ define(function (require) {
         effectCfg.color = color;
         
         // Center Point Effect
-        effectCfg.centerPoint = {
-            show: itemModel.get('rippleEffect.centerPoint.show'),
-            scale: itemModel.get('rippleEffect.centerPoint.scale')
+        effectCfg.centerEffect = {
+            show: itemModel.get('rippleEffect.centerEffect.show'),
+            scale: itemModel.get('rippleEffect.centerEffect.scale')
         };
 
         this.off('mouseover').off('mouseout').off('emphasis').off('normal');
