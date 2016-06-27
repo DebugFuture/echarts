@@ -11,8 +11,6 @@ define(function (require) {
     var Symbol = require('./Symbol');
     var Group = graphic.Group;
 
-    var EFFECT_RIPPLE_NUMBER = 3;
-
     function normalizeSymbolSize(symbolSize) {
         if (!zrUtil.isArray(symbolSize)) {
             symbolSize = [+symbolSize, +symbolSize];
@@ -63,20 +61,22 @@ define(function (require) {
         var color = effectCfg.color;
         var rippleGroup = this.childAt(1);
 
-        for (var i = 0; i < EFFECT_RIPPLE_NUMBER; i++) {
+        for (var i = 0; i < effectCfg.rippleNum; i++) {
             var ripplePath = symbolUtil.createSymbol(
                 symbolType, -0.5, -0.5, 1, 1, color
             );
+            
             ripplePath.attr({
                 style: {
-                    strokeNoScale: true
+                    strokeNoScale: true,
+                    lineWidth: effectCfg.rippleWidth
                 },
                 z2: 99,
                 silent: true,
                 scale: [1, 1]
             });
 
-            var delay = -i / EFFECT_RIPPLE_NUMBER * effectCfg.period + effectCfg.effectOffset;
+            var delay = -i / effectCfg.rippleNum * effectCfg.period + effectCfg.effectOffset;
             // TODO Configurable effectCfg.period
             ripplePath.animate('', true)
                 .when(effectCfg.period, {
@@ -168,6 +168,8 @@ define(function (require) {
 
         effectCfg.showEffectOn = seriesModel.get('showEffectOn');
         effectCfg.rippleScale = itemModel.get('rippleEffect.scale');
+        effectCfg.rippleNum = itemModel.get('rippleEffect.rippleNum');
+        effectCfg.rippleWidth = itemModel.get('rippleEffect.rippleWidth');
         effectCfg.brushType = itemModel.get('rippleEffect.brushType');
         effectCfg.period = itemModel.get('rippleEffect.period') * 1000;
         effectCfg.effectOffset = idx / data.count();

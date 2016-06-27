@@ -135,10 +135,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // This flag is used to carry out this rule.
 	    // All events will be triggered out side main process (i.e. when !this[IN_MAIN_PROCESS]).
 	    var IN_MAIN_PROCESS = '__flag_in_main_process';
-	    // Only final events can be "program triggered", that is, trigger by `setOption`,
-	    // `dispatchAciton` or `resize`. This flag is used to avoid dead lock when calling
-	    // those method in final events listener.
-	    var IN_FINAL_EVENTS = '__flag_in_final_event';
 
 	    function createRegisterEventWithLowercaseName(method) {
 	        return function (eventName, handler, context) {
@@ -233,11 +229,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	         */
 	        this._coordSysMgr = new CoordinateSystemManager();
 
-	        /**
-	         * @type {Array.<Object>}
-	         */
-	        this._finalEvents = [];
-
 	        Eventful.call(this);
 
 	        /**
@@ -287,9 +278,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            zrUtil.assert(!this[IN_MAIN_PROCESS], '`setOption` should not be called during main process.');
 	        }
 
-	        this[IN_MAIN_PROCESS] = 1;
-
-	        this._finalEvents = [];
+	        this[IN_MAIN_PROCESS] = true;
 
 	        if (!this._model || notMerge) {
 	            this._model = new GlobalModel(
@@ -303,9 +292,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        !notRefreshImmediately && this._zr.refreshImmediately();
 
-	        this[IN_MAIN_PROCESS] = 0;
-
-	        triggerFinalEvents.call(this);
+	        this[IN_MAIN_PROCESS] = false;
 	    };
 
 	    /**
@@ -484,6 +471,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var ecModel = this._model;
 	            var api = this._api;
 	            var coordSysMgr = this._coordSysMgr;
+	            var zr = this._zr;
 	            // update before setOption
 	            if (!ecModel) {
 	                return;
@@ -513,10 +501,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	            // Set background
 	            var backgroundColor = ecModel.get('backgroundColor') || 'transparent';
 
-	            var painter = this._zr.painter;
+	            var painter = zr.painter;
 	            // TODO all use clearColor ?
 	            if (painter.isSingleCanvas && painter.isSingleCanvas()) {
-	                this._zr.configLayer(0, {
+	                zr.configLayer(0, {
 	                    clearColor: backgroundColor
 	                });
 	            }
@@ -529,8 +517,24 @@ return /******/ (function(modules) { // webpackBootstrap
 	                        backgroundColor = 'transparent';
 	                    }
 	                }
-	                backgroundColor = backgroundColor;
-	                this._dom.style.backgroundColor = backgroundColor;
+	                if (backgroundColor.colorStops) {
+	                    // Gradient background
+	                    // FIXME Fixed layer？
+	                    zr.configLayer(0, {
+	                        clearColor: backgroundColor
+	                    });
+	                    this._hasGradientBg = true;
+	                }
+	                else {
+	                    if (this._hasGradientBg) {
+	                        zr.configLayer(0, {
+	                            clearColor: null
+	                        });
+	                    }
+	                    this._hasGradientBg = false;
+
+	                    this._dom.style.background = backgroundColor;
+	                }
 	            }
 
 	            // console.time && console.timeEnd('update');
@@ -661,9 +665,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            zrUtil.assert(!this[IN_MAIN_PROCESS], '`resize` should not be called during main process.');
 	        }
 
-	        this[IN_MAIN_PROCESS] = 1;
-
-	        this._finalEvents = [];
+	        this[IN_MAIN_PROCESS] = true;
 
 	        this._zr.resize();
 
@@ -673,9 +675,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // Resize loading effect
 	        this._loadingFX && this._loadingFX.resize();
 
-	        this[IN_MAIN_PROCESS] = 0;
-
-	        triggerFinalEvents.call(this);
+	        this[IN_MAIN_PROCESS] = false;
 	    };
 
 	    var defaultLoadingEffect = __webpack_require__(92);
@@ -715,16 +715,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return payload;
 	    };
 
-	    function triggerFinalEvents() {
-	        if (!this[IN_FINAL_EVENTS]) { // Avoid dead lock.
-	            this[IN_FINAL_EVENTS] = 1;
-	            each(this._finalEvents, function (eventObj) {
-	                this.trigger(eventObj.type, eventObj);
-	            }, this);
-	            this[IN_FINAL_EVENTS] = 0;
-	        }
-	    }
-
 	    /**
 	     * @pubilc
 	     * @param {Object} payload
@@ -742,17 +732,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        if (true) {
 	            zrUtil.assert(
-	                updateMethod === 'none' || !this[IN_MAIN_PROCESS],
+	                !this[IN_MAIN_PROCESS],
 	                '`dispatchAction` should not be called during main process.'
-	                    + 'unless updateMathod is "none".'
+	                + 'unless updateMathod is "none".'
 	            );
 	        }
 
-	        var isFinalEvent = updateMethod === 'none' && this[IN_MAIN_PROCESS];
-	        if (!isFinalEvent) {
-	            this[IN_MAIN_PROCESS] = 1;
-	            this._finalEvents = [];
-	        }
+	        this[IN_MAIN_PROCESS] = true;
 
 	        var payloads = [payload];
 	        var batched = false;
@@ -797,16 +783,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	            eventObj = eventObjBatch[0];
 	        }
 
-	        if (!isFinalEvent) {
-	            this[IN_MAIN_PROCESS] = 0;
-	            if (!silent) {
-	                this._messageCenter.trigger(eventObj.type, eventObj);
-	                triggerFinalEvents.call(this);
-	            }
-	        }
-	        else {
-	            this._finalEvents.push(eventObj);
-	        }
+	        this[IN_MAIN_PROCESS] = false;
+
+	        !silent && this._messageCenter.trigger(eventObj.type, eventObj);
 	    };
 
 	    /**
@@ -1013,7 +992,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            if (needProgressive) {
 	                chartView.group.traverse(function (el) {
 	                    // FIXME marker and other components
-	                    if (el.type !== 'group') {
+	                    if (!el.isGroup) {
 	                        el.progressive = needProgressive ?
 	                            Math.floor(elCount++ / frameDrawNum) : -1;
 	                        if (needProgressive) {
@@ -1022,12 +1001,28 @@ return /******/ (function(modules) { // webpackBootstrap
 	                    }
 	                });
 	            }
+
+	            // Blend configration
+	            var blendMode = seriesModel.get('blendMode');
+	            if (true) {
+	                if (!env.canvasSupported && blendMode && blendMode !== 'source-over') {
+	                    console.warn('Only canvas support blendMode');
+	                }
+	            }
+	            if (blendMode) {
+	                chartView.group.traverse(function (el) {
+	                    // FIXME marker and other components
+	                    if (!el.isGroup) {
+	                        el.setStyle('blend', blendMode);
+	                    }
+	                });
+	            }
 	        }, this);
 
 	        // If use hover layer
 	        if (elCountAll > ecModel.get('hoverLayerThreshold') && !env.node) {
 	            this._zr.storage.traverse(function (el) {
-	                if (el.type !== 'group') {
+	                if (!el.isGroup) {
 	                    el.useHoverLayer = true;
 	                }
 	            });
@@ -1494,9 +1489,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        zrUtil.createCanvas = creator;
 	    };
 
-	    echarts.registerVisual(PRIORITY_VISUAL_GLOBAL, zrUtil.curry(
-	        __webpack_require__(93), '', 'itemStyle'
-	    ));
+	    echarts.registerVisual(PRIORITY_VISUAL_GLOBAL, __webpack_require__(93));
 	    echarts.registerPreprocessor(__webpack_require__(94));
 
 	    // Default action
@@ -1557,16 +1550,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 2 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * echarts设备环境识别
 	 *
 	 * @desc echarts基于Canvas，纯Javascript图表库，提供直观，生动，可交互，可个性化定制的数据统计图表。
 	 * @author firede[firede@firede.us]
 	 * @desc thanks zepto.
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var env = {};
 	    if (typeof navigator === 'undefined') {
 	        // In node
@@ -1582,7 +1575,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        env = detect(navigator.userAgent);
 	    }
 
-	    module.exports = env;
+	    return env;
 
 	    // Zepto.js
 	    // (c) 2010-2013 Thomas Fuchs
@@ -1675,7 +1668,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                && (browser.edge || (browser.ie && browser.version >= 10))
 	        };
 	    }
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 3 */
@@ -2443,12 +2436,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 4 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/core/util
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
 	    // 用于处理merge时无法遍历Date等对象的问题
 	    var BUILTIN_OBJECT = {
@@ -2934,8 +2927,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        assert: assert,
 	        noop: function () {}
 	    };
-	    module.exports = util;
-
+	    return util;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
@@ -3137,7 +3130,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param {string|number|Date|Array|Object} dataItem
 	     */
 	    modelUtil.isDataItemOption = function (dataItem) {
-	        return zrUtil.isObject(dataItem) && !(dataItem instanceof Array);
+	        return zrUtil.isObject(dataItem)
+	            && !(dataItem instanceof Array);
+	            // // markLine data can be array
+	            // && !(dataItem[0] && zrUtil.isObject(dataItem[0]) && !(dataItem[0] instanceof Array));
 	    };
 
 	    /**
@@ -3163,6 +3159,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ? NaN : +value; // If string (like '-'), using '+' parse to NaN
 	    };
 
+	    // PENDING A little ugly
 	    modelUtil.dataFormatMixin = {
 	        /**
 	         * Get params for formatter
@@ -4320,7 +4317,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 14 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var textWidthCache = {};
 	    var textWidthCacheCounter = 0;
@@ -4576,18 +4573,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = textContain;
-
+	    return textContain;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 15 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module echarts/core/BoundingRect
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
+	    'use strict';
 
 	    var vec2 = __webpack_require__(16);
 	    var matrix = __webpack_require__(17);
@@ -4735,14 +4732,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = BoundingRect;
-
+	    return BoundingRect;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 16 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var ArrayCtor = typeof Float32Array === 'undefined'
 	        ? Array
 	        : Float32Array;
@@ -5014,15 +5011,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	    vector.dist = vector.distance;
 	    vector.distSquare = vector.distanceSquare;
 
-	    module.exports = vector;
-
+	    return vector;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 17 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var ArrayCtor = typeof Float32Array === 'undefined'
 	        ? Array
 	        : Float32Array;
@@ -5178,8 +5175,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = matrix;
-
+	    return matrix;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
@@ -6041,6 +6038,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	            fontStyle: 'normal',
 	            fontWeight: 'normal'
 	        },
+
+	        // http://blogs.adobe.com/webplatform/2014/02/24/using-blend-modes-in-html-canvas/
+	        // https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/globalCompositeOperation
+	        // Default is source-over
+	        blendMode: null,
+
 	        animation: true,
 	        animationDuration: 1000,
 	        animationDurationUpdate: 300,
@@ -6048,7 +6051,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        animationEasingUpdate: 'cubicOut',
 
 	        animationThreshold: 2000,
-	        // Progressive configuration
+	        // Configuration for progressive/incremental rendering
 	        progressiveThreshold: 3000,
 	        progressive: 400,
 
@@ -6101,7 +6104,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var zrUtil = __webpack_require__(4);
 
 	    var echartsAPIList = [
-	        'getDom', 'getZr', 'getWidth', 'getHeight', 'dispatchAction',
+	        'getDom', 'getZr', 'getWidth', 'getHeight', 'dispatchAction', 'isDisposed',
 	        'on', 'off', 'getDataURL', 'getConnectedDataURL', 'getModel', 'getOption'
 	    ];
 
@@ -6121,7 +6124,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	'use strict';
 
 
-	    // var zrUtil = require('zrender/lib/core/util');
 	    var coordinateSystemCreators = {};
 
 	    function CoordinateSystemManager() {
@@ -6645,6 +6647,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // PENDING
 	        legendDataProvider: null,
 
+	        /**
+	         * Access path of color for visual
+	         */
+	        visualColorAccessPath: 'itemStyle.normal.color',
+
 	        init: function (option, parentModel, ecModel, extraOpt) {
 
 	            /**
@@ -6907,12 +6914,12 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 30 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Group是一个容器，可以插入子节点，Group的变换也会被应用到子节点上
 	 * @module zrender/graphic/Group
 	 * @example
-	 *     var Group = require('zrender/lib/container/Group');
-	 *     var Circle = require('zrender/lib/graphic/shape/Circle');
+	 *     var Group = require('zrender/container/Group');
+	 *     var Circle = require('zrender/graphic/shape/Circle');
 	 *     var g = new Group();
 	 *     g.position[0] = 100;
 	 *     g.position[1] = 100;
@@ -6925,7 +6932,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *     }));
 	 *     zr.add(g);
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var zrUtil = __webpack_require__(4);
 	    var Element = __webpack_require__(31);
@@ -7214,18 +7221,18 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(Group, Element);
 
-	    module.exports = Group;
-
+	    return Group;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 31 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/Element
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
+	    'use strict';
 
 	    var guid = __webpack_require__(32);
 	    var Eventful = __webpack_require__(33);
@@ -7482,39 +7489,39 @@ return /******/ (function(modules) { // webpackBootstrap
 	    zrUtil.mixin(Element, Transformable);
 	    zrUtil.mixin(Element, Eventful);
 
-	    module.exports = Element;
-
+	    return Element;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 32 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * zrender: 生成唯一id
 	 *
 	 * @author errorrik (errorrik@gmail.com)
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function() {
 	        var idStart = 0x0907;
 
-	        module.exports = function () {
+	        return function () {
 	            return 'zr_' + (idStart++);
 	        };
-	    
+	    }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 33 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 事件扩展
 	 * @module zrender/mixin/Eventful
 	 * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 *         pissang (https://www.github.com/pissang)
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var arrySlice = Array.prototype.slice;
 	    var zrUtil = __webpack_require__(4);
@@ -7797,21 +7804,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @default null
 	     */
 
-	    module.exports = Eventful;
-
+	    return Eventful;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 34 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 提供变换扩展
 	 * @module zrender/mixin/Transformable
 	 * @author pissang (https://www.github.com/pissang)
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
+	    'use strict';
 
 	    var matrix = __webpack_require__(17);
 	    var vector = __webpack_require__(16);
@@ -8050,19 +8058,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return v2;
 	    };
 
-	    module.exports = Transformable;
-
+	    return Transformable;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 35 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/mixin/Animatable
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
+	    'use strict';
 
 	    var Animator = __webpack_require__(36);
 	    var util = __webpack_require__(4);
@@ -8321,17 +8330,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Animatable;
-
+	    return Animatable;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 36 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module echarts/animation/Animator
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Clip = __webpack_require__(37);
 	    var color = __webpack_require__(39);
@@ -8646,12 +8655,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var frame;
 	            if (percent < lastFramePercent) {
 	                // Start from next key
+	                // PENDING start from lastFrame ?
 	                start = Math.min(lastFrame + 1, trackLen - 1);
 	                for (frame = start; frame >= 0; frame--) {
 	                    if (kfPercents[frame] <= percent) {
 	                        break;
 	                    }
 	                }
+	                // PENDING really need to do this ?
 	                frame = Math.min(frame, trackLen - 2);
 	            }
 	            else {
@@ -8944,14 +8955,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Animator;
-
+	    return Animator;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 37 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 动画主控制器
 	 * @config target 动画对象，可以是数组，如果是数组的话会批量分发onframe等事件
 	 * @config life(1000) 动画时长
@@ -8965,7 +8976,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *
 	 * TODO pause
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
 	    var easingFuncs = __webpack_require__(38);
 
@@ -9056,20 +9067,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Clip;
-
+	    return Clip;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 38 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 缓动代码来自 https://github.com/sole/tween.js/blob/master/src/Tween.js
 	 * @see http://sole.github.io/tween.js/examples/03_graphs.html
 	 * @exports zrender/animation/easing
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var easing = {
 	        /**
 	        * @param {number} k
@@ -9406,19 +9417,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = easing;
-
+	    return easing;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 
 /***/ },
 /* 39 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/tool/color
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
 	    var kCSSColorTable = {
 	        'transparent': [0,0,0,0], 'aliceblue': [240,248,255,1],
@@ -9880,7 +9891,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return type + '(' + colorStr + ')';
 	    }
 
-	    module.exports = {
+	    return {
 	        parse: parse,
 	        lift: lift,
 	        toHex: toHex,
@@ -9890,7 +9901,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        modifyAlpha: modifyAlpha,
 	        stringify: stringify
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 
@@ -9898,14 +9909,14 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 40 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	        var config = __webpack_require__(41);
 
 	        /**
 	         * @exports zrender/tool/log
 	         * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	         */
-	        module.exports = function() {
+	        return function() {
 	            if (config.debugMode === 0) {
 	                return;
 	            }
@@ -9929,14 +9940,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	                + document.getElementById('wrong-message').innerHTML;
 	        };
 	        */
-	    
+	    }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 41 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var dpr = 1;
 	    // If in browser environment
 	    if (typeof window !== 'undefined') {
@@ -9959,8 +9970,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // retina 屏幕优化
 	        devicePixelRatio: dpr
 	    };
-	    module.exports = config;
-
+	    return config;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 
@@ -10619,6 +10630,52 @@ return /******/ (function(modules) { // webpackBootstrap
 	            : (vertex[1] > 0 ? 'bottom' : 'top');
 	    };
 
+	    /**
+	     * Apply group transition animation from g1 to g2
+	     */
+	    graphic.groupTransition = function (g1, g2, animatableModel, cb) {
+	        if (!g1 || !g2) {
+	            return;
+	        }
+
+	        function getElMap(g) {
+	            var elMap = {};
+	            g.traverse(function (el) {
+	                if (!el.isGroup && el.anid) {
+	                    elMap[el.anid] = el;
+	                }
+	            });
+	            return elMap;
+	        }
+	        function getAnimatableProps(el) {
+	            var obj = {
+	                position: vector.clone(el.position),
+	                rotation: el.rotation
+	            };
+	            if (el.shape) {
+	                obj.shape = zrUtil.extend({}, el.shape);
+	            }
+	            return obj;
+	        }
+	        var elMap1 = getElMap(g1);
+
+	        g2.traverse(function (el) {
+	            if (!el.isGroup && el.anid) {
+	                var oldEl = elMap1[el.anid];
+	                if (oldEl) {
+	                    var newProp = getAnimatableProps(el);
+	                    el.attr(getAnimatableProps(oldEl));
+	                    graphic.updateProps(el, newProp, animatableModel, el.dataIndex);
+	                }
+	                // else {
+	                //     if (el.previousProps) {
+	                //         graphic.updateProps
+	                //     }
+	                // }
+	            }
+	        });
+	    };
+
 	    module.exports = graphic;
 
 
@@ -10626,7 +10683,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 44 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Path = __webpack_require__(45);
 	    var PathProxy = __webpack_require__(49);
@@ -10978,7 +11035,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return opts;
 	    }
 
-	    module.exports = {
+	    return {
 	        /**
 	         * Create a Path object from path string data
 	         * http://www.w3.org/TR/SVG/paths.html#PathData
@@ -11027,18 +11084,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return pathBundle;
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 45 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Path element
 	 * @module zrender/graphic/Path
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Displayable = __webpack_require__(46);
 	    var zrUtil = __webpack_require__(4);
@@ -11389,20 +11446,20 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(Path, Displayable);
 
-	    module.exports = Path;
-
+	    return Path;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 46 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 可绘制的图形基类
 	 * Base class of all displayable graphic objects
 	 * @module zrender/graphic/Displayable
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var zrUtil = __webpack_require__(4);
 
@@ -11663,17 +11720,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	    zrUtil.mixin(Displayable, RectText);
 	    // zrUtil.mixin(Displayable, Stateful);
 
-	    module.exports = Displayable;
-
+	    return Displayable;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 47 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/graphic/Style
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var STYLE_COMMON_PROPS = [
 	        ['shadowBlur', 0], ['shadowOffsetX', 0], ['shadowOffsetY', 0], ['shadowColor', '#000'],
@@ -11686,6 +11743,45 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var Style = function (opts) {
 	        this.extendFrom(opts);
 	    };
+
+	    function createLinearGradient(ctx, obj, rect) {
+	        // var size =
+	        var x = obj.x;
+	        var x2 = obj.x2;
+	        var y = obj.y;
+	        var y2 = obj.y2;
+
+	        if (!obj.global) {
+	            x = x * rect.width + rect.x;
+	            x2 = x2 * rect.width + rect.x;
+	            y = y * rect.height + rect.y;
+	            y2 = y2 * rect.height + rect.y;
+	        }
+
+	        var canvasGradient = ctx.createLinearGradient(x, y, x2, y2);
+
+	        return canvasGradient;
+	    }
+
+	    function createRadialGradient(ctx, obj, rect) {
+	        var width = rect.width;
+	        var height = rect.height;
+	        var min = Math.min(width, height);
+
+	        var x = obj.x;
+	        var y = obj.y;
+	        var r = obj.r;
+	        if (!obj.global) {
+	            x = x * width + rect.x;
+	            y = y * height + rect.y;
+	            r = r * min;
+	        }
+
+	        var canvasGradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+
+	        return canvasGradient;
+	    }
+
 
 	    Style.prototype = {
 
@@ -11803,6 +11899,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	        textShadowOffsetY: 0,
 
 	        /**
+	         * @type {string}
+	         * https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/globalCompositeOperation
+	         */
+	        blend: null,
+
+	        /**
 	         * @param {CanvasRenderingContext2D} ctx
 	         */
 	        bind: function (ctx, el, prevEl) {
@@ -11828,6 +11930,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 	            if ((firstDraw || style.opacity !== prevStyle.opacity)) {
 	                ctx.globalAlpha = style.opacity == null ? 1 : style.opacity;
+	            }
+	            if ((firstDraw || style.blend !== prevStyle.blend)) {
+	                ctx.globalCompositeOperation = style.blend || 'source-over';
 	            }
 	            if (this.hasStroke()) {
 	                var lineWidth = style.lineWidth;
@@ -11889,35 +11994,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return newStyle;
 	        },
 
-	        createLinearGradient: function (ctx, obj, rect) {
-	            // var size =
-	            var x = obj.x * rect.width + rect.x;
-	            var x2 = obj.x2 * rect.width + rect.x;
-	            var y = obj.y * rect.height + rect.y;
-	            var y2 = obj.y2 * rect.height + rect.y;
-
-	            var canvasGradient = ctx.createLinearGradient(x, y, x2, y2);
-
-	            return canvasGradient;
-	        },
-
-	        createRadialGradient: function (ctx, obj, rect) {
-	            var width = rect.width;
-	            var height = rect.height;
-	            var min = Math.min(width, height);
-
-	            var x = obj.x * width + rect.x;
-	            var y = obj.y * height + rect.y;
-	            var r = obj.r * min;
-
-	            var canvasGradient = ctx.createRadialGradient(x, y, 0, x, y, r);
-
-	            return canvasGradient;
-	        },
-
 	        getGradient: function (ctx, obj, rect) {
-	            var method = obj.type === 'radial' ? 'createRadialGradient' : 'createLinearGradient';
-	            var canvasGradient = this[method](ctx, obj, rect);
+	            var method = obj.type === 'radial' ? createRadialGradient : createLinearGradient;
+	            var canvasGradient = method(ctx, obj, rect);
 	            var colorStops = obj.colorStops;
 	            for (var i = 0; i < colorStops.length; i++) {
 	                canvasGradient.addColorStop(
@@ -11936,19 +12015,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    }
 
-	    module.exports = Style;
+	    // Provide for others
+	    Style.getGradient = styleProto.getGradient;
 
+	    return Style;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 48 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Mixin for drawing text in a element bounding rect
 	 * @module zrender/mixin/RectText
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var textContain = __webpack_require__(14);
 	    var BoundingRect = __webpack_require__(15);
@@ -12075,15 +12157,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = RectText;
-
+	    return RectText;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 49 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Path 代理，可以在`buildPath`中用于替代`ctx`, 会保存每个path操作的命令到pathCommands属性中
 	 * 可以用于 isInsidePath 判断以及获取boundingRect
 	 *
@@ -12092,7 +12173,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 
 	 // TODO getTotalLength, getPointAtLength
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	    'use strict';
 
 	    var curve = __webpack_require__(50);
 	    var vec2 = __webpack_require__(16);
@@ -12507,14 +12589,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	            x -= offset * dx;
 	            y -= offset * dy;
 
-	            while ((dx >= 0 && x <= x1) || (dx < 0 && x > x1)) {
+	            while ((dx > 0 && x <= x1) || (dx < 0 && x >= x1)
+	            || (dx == 0 && ((dy > 0 && y <= y1) || (dy < 0 && y >= y1)))) {
 	                idx = this._dashIdx;
 	                dash = lineDash[idx];
 	                x += dx * dash;
 	                y += dy * dash;
 	                this._dashIdx = (idx + 1) % nDash;
 	                // Skip positive offset
-	                if ((dx > 0 && x < x0) || (dx < 0 && x > x0)) {
+	                if ((dx > 0 && x < x0) || (dx < 0 && x > x0) || (dy > 0 && y < y0) || (dy < 0 && y > y0)) {
 	                    continue;
 	                }
 	                ctx[idx % 2 ? 'moveTo' : 'lineTo'](
@@ -12846,20 +12929,21 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    PathProxy.CMD = CMD;
 
-	    module.exports = PathProxy;
-
+	    return PathProxy;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 50 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 曲线辅助模块
 	 * @module zrender/core/curve
 	 * @author pissang(https://www.github.com/pissang)
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
+	    'use strict';
 
 	    var vec2 = __webpack_require__(16);
 	    var v2Create = vec2.create;
@@ -13367,7 +13451,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return mathSqrt(d);
 	    }
 
-	    module.exports = {
+	    return {
 
 	        cubicAt: cubicAt,
 
@@ -13393,16 +13477,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        quadraticProjectPoint: quadraticProjectPoint
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 51 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @author Yi Shen(https://github.com/pissang)
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var vec2 = __webpack_require__(16);
 	    var curve = __webpack_require__(50);
@@ -13627,16 +13711,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = bbox;
-
+	    return bbox;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 52 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
+	    'use strict';
 
 	    var CMD = __webpack_require__(49).CMD;
 	    var line = __webpack_require__(53);
@@ -14026,7 +14111,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return w !== 0;
 	    }
 
-	    module.exports = {
+	    return {
 	        contain: function (pathData, x, y) {
 	            return containPath(pathData, 0, false, x, y);
 	        },
@@ -14035,14 +14120,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return containPath(pathData, lineWidth, true, x, y);
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 53 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
-	    module.exports = {
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
+	    return {
 	        /**
 	         * 线段包含判断
 	         * @param  {number}  x0
@@ -14083,17 +14168,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return _s <= _l / 2 * _l / 2;
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 54 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var curve = __webpack_require__(50);
 
-	    module.exports = {
+	    return {
 	        /**
 	         * 三次贝塞尔曲线描边包含判断
 	         * @param  {number}  x0
@@ -14130,17 +14215,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return d <= _l / 2;
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 55 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var curve = __webpack_require__(50);
 
-	    module.exports = {
+	    return {
 	        /**
 	         * 二次贝塞尔曲线描边包含判断
 	         * @param  {number}  x0
@@ -14175,18 +14260,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return d <= _l / 2;
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 56 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var normalizeRadian = __webpack_require__(57).normalizeRadian;
 	    var PI2 = Math.PI * 2;
 
-	    module.exports = {
+	    return {
 	        /**
 	         * 圆弧描边包含判断
 	         * @param  {number}  cx
@@ -14241,16 +14326,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	                || (angle + PI2 >= startAngle && angle + PI2 <= endAngle);
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 57 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var PI2 = Math.PI * 2;
-	    module.exports = {
+	    return {
 	        normalizeRadian: function(angle) {
 	            angle %= PI2;
 	            if (angle < 0) {
@@ -14259,14 +14344,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return angle;
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 58 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
-	    module.exports = function windingLine(x0, y0, x1, y1, x, y) {
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
+	    return function windingLine(x0, y0, x1, y1, x, y) {
 	        if ((y > y0 && y > y1) || (y < y0 && y < y1)) {
 	            return 0;
 	        }
@@ -14286,13 +14371,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        return x_ > x ? dir : 0;
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 59 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Pattern = function (image, repeat) {
 	        this.image = image;
@@ -14308,14 +14393,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            || (this._canvasPattern = ctx.createPattern(this.image, this.repeat));
 	    };
 
-	    module.exports = Pattern;
-
+	    return Pattern;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 60 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var CMD = __webpack_require__(49).CMD;
 	    var vec2 = __webpack_require__(16);
@@ -14409,14 +14494,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    }
 
-	    module.exports = transformPath;
-
+	    return transformPath;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 61 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    /**
 	     * @param {Array.<Object>} colorStops
@@ -14440,19 +14525,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Gradient;
-
+	    return Gradient;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 62 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Image element
 	 * @module zrender/graphic/Image
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Displayable = __webpack_require__(46);
 	    var BoundingRect = __webpack_require__(15);
@@ -14610,16 +14695,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(ZImage, Displayable);
 
-	    module.exports = ZImage;
-
+	    return ZImage;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 63 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
-	    module.exports = {
+	    return {
 	        buildPath: function (ctx, shape) {
 	            var x = shape.x;
 	            var y = shape.y;
@@ -14706,15 +14791,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	            r1 !== 0 && ctx.quadraticCurveTo(x, y, x + r1, y);
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 64 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	// Simple LRU cache use doubly linked list
+	var __WEBPACK_AMD_DEFINE_RESULT__;// Simple LRU cache use doubly linked list
 	// @module zrender/core/LRU
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
 	    /**
 	     * Simple double linked list. Compared with array, it has O(1) remove operation.
@@ -14880,14 +14965,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        this._map = {};
 	    };
 
-	    module.exports = LRU;
-
+	    return LRU;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 65 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Text element
 	 * @module zrender/graphic/Text
 	 *
@@ -14896,7 +14981,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * Text not support gradient
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Displayable = __webpack_require__(46);
 	    var zrUtil = __webpack_require__(4);
@@ -15009,22 +15094,22 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(Text, Displayable);
 
-	    module.exports = Text;
-
+	    return Text;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 66 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 圆形
 	 * @module zrender/shape/Circle
 	 */
 
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	    'use strict';
 
-
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'circle',
 
@@ -15046,22 +15131,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ctx.arc(shape.cx, shape.cy, shape.r, 0, Math.PI * 2, true);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 67 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 扇形
 	 * @module zrender/graphic/shape/Sector
 	 */
 
 	// FIXME clockwise seems wrong
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
-
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'sector',
 
@@ -15113,20 +15198,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ctx.closePath();
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 68 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 圆环
 	 * @module zrender/graphic/shape/Ring
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
-
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'ring',
 
@@ -15147,22 +15232,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ctx.arc(x, y, shape.r0, 0, PI2, true);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 69 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 多边形
 	 * @module zrender/shape/Polygon
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var polyHelper = __webpack_require__(70);
 
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 	        
 	        type: 'polygon',
 
@@ -15178,18 +15263,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	            polyHelper.buildPath(ctx, shape, true);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 70 */
 /***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var smoothSpline = __webpack_require__(71);
 	    var smoothBezier = __webpack_require__(72);
 
-	    module.exports = {
+	    return {
 	        buildPath: function (ctx, shape, closePath) {
 	            var points = shape.points;
 	            var smooth = shape.smooth;
@@ -15225,20 +15310,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 	        }
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 71 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Catmull-Rom spline 插值折线
 	 * @module zrender/shape/util/smoothSpline
 	 * @author pissang (https://www.github.com/pissang)
 	 *         Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 *         errorrik (errorrik@gmail.com)
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	    var vec2 = __webpack_require__(16);
 
 	    /**
@@ -15258,7 +15343,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param {boolean} isLoop
 	     * @return {Array}
 	     */
-	    module.exports = function (points, isLoop) {
+	    return function (points, isLoop) {
 	        var len = points.length;
 	        var ret = [];
 
@@ -15300,21 +15385,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	        return ret;
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 72 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 贝塞尔平滑曲线
 	 * @module zrender/shape/util/smoothBezier
 	 * @author pissang (https://www.github.com/pissang)
 	 *         Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 *         errorrik (errorrik@gmail.com)
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var vec2 = __webpack_require__(16);
 	    var v2Min = vec2.min;
@@ -15334,7 +15419,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     *                           整个折线的包围盒做一个并集用来约束控制点。
 	     * @param {Array} 计算出来的控制点数组
 	     */
-	    module.exports = function (points, smooth, isLoop, constraint) {
+	    return function (points, smooth, isLoop, constraint) {
 	        var cps = [];
 
 	        var v = [];
@@ -15407,21 +15492,21 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        return cps;
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 73 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/graphic/shape/Polyline
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var polyHelper = __webpack_require__(70);
 
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 	        
 	        type: 'polyline',
 
@@ -15443,21 +15528,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	            polyHelper.buildPath(ctx, shape, false);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 74 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 矩形
 	 * @module zrender/graphic/shape/Rect
 	 */
 
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	    var roundRectHelper = __webpack_require__(63);
 
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'rect',
 
@@ -15490,19 +15575,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return;
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 75 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 直线
 	 * @module zrender/graphic/shape/Line
 	 */
-
-	    module.exports = __webpack_require__(45).extend({
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	    return __webpack_require__(45).extend({
 
 	        type: 'line',
 
@@ -15555,19 +15640,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ];
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 76 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 贝塞尔曲线
 	 * @module zrender/shape/BezierCurve
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	    'use strict';
 
 	    var curveTool = __webpack_require__(50);
 	    var vec2 = __webpack_require__(16);
@@ -15596,7 +15681,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ];
 	        }
 	    }
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'bezier-curve',
 
@@ -15696,20 +15781,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return vec2.normalize(p, p);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 77 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 圆弧
 	 * @module zrender/graphic/shape/Arc
 	 */
-	 
+	 !(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
-	    module.exports = __webpack_require__(45).extend({
+	    return __webpack_require__(45).extend({
 
 	        type: 'arc',
 
@@ -15751,17 +15836,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ctx.arc(x, y, r, startAngle, endAngle, !clockwise);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 78 */
 /***/ function(module, exports, __webpack_require__) {
 
-	// CompoundPath to improve performance
-
+	var __WEBPACK_AMD_DEFINE_RESULT__;// CompoundPath to improve performance
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var Path = __webpack_require__(45);
-	    module.exports = Path.extend({
+	    return Path.extend({
 
 	        type: 'compound',
 
@@ -15810,14 +15895,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return Path.prototype.getBoundingRect.call(this);
 	        }
 	    });
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 79 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
+	    'use strict';
 
 	    var zrUtil = __webpack_require__(4);
 
@@ -15830,8 +15915,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param {number} [x2=1]
 	     * @param {number} [y2=0]
 	     * @param {Array.<Object>} colorStops
+	     * @param {boolean} [globalCoord=false]
 	     */
-	    var LinearGradient = function (x, y, x2, y2, colorStops) {
+	    var LinearGradient = function (x, y, x2, y2, colorStops, globalCoord) {
 	        this.x = x == null ? 0 : x;
 
 	        this.y = y == null ? 0 : y;
@@ -15843,6 +15929,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // Can be cloned
 	        this.type = 'linear';
 
+	        // If use global coord
+	        this.global = globalCoord || false;
+
 	        Gradient.call(this, colorStops);
 	    };
 
@@ -15853,15 +15942,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(LinearGradient, Gradient);
 
-	    module.exports = LinearGradient;
-
+	    return LinearGradient;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 80 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
+	    'use strict';
 
 	    var zrUtil = __webpack_require__(4);
 
@@ -15873,8 +15962,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param {number} [y=0.5]
 	     * @param {number} [r=0.5]
 	     * @param {Array.<Object>} [colorStops]
+	     * @param {boolean} [globalCoord=false]
 	     */
-	    var RadialGradient = function (x, y, r, colorStops) {
+	    var RadialGradient = function (x, y, r, colorStops, globalCoord) {
 	        this.x = x == null ? 0.5 : x;
 
 	        this.y = y == null ? 0.5 : y;
@@ -15883,6 +15973,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        // Can be cloned
 	        this.type = 'radial';
+
+	        // If use global coord
+	        this.global = globalCoord || false;
 
 	        Gradient.call(this, colorStops);
 	    };
@@ -15894,14 +15987,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    zrUtil.inherits(RadialGradient, Gradient);
 
-	    module.exports = RadialGradient;
-
+	    return RadialGradient;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 81 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/*!
+	var __WEBPACK_AMD_DEFINE_RESULT__;/*!
 	 * ZRender, a high performance 2d drawing library.
 	 *
 	 * Copyright (c) 2013, Baidu Inc.
@@ -15911,7 +16004,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * https://github.com/ecomfe/zrender/blob/master/LICENSE.txt
 	 */
 	// Global defines
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 	    var guid = __webpack_require__(32);
 	    var env = __webpack_require__(2);
 
@@ -16305,23 +16398,24 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = zrender;
-
+	    return zrender;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 82 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Handler
 	 * @module zrender/Handler
 	 * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 *         errorrik (errorrik@gmail.com)
 	 *         pissang (shenyi.914@gmail.com)
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
+	    'use strict';
 
 	    var env = __webpack_require__(2);
 	    var eventTool = __webpack_require__(83);
@@ -16842,20 +16936,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	    util.mixin(Handler, Eventful);
 	    util.mixin(Handler, Draggable);
 
-	    module.exports = Handler;
-
+	    return Handler;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 83 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 事件辅助类
 	 * @module zrender/core/event
 	 * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
+	    'use strict';
 
 	    var Eventful = __webpack_require__(33);
 
@@ -16938,7 +17033,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            e.cancelBubble = true;
 	        };
 
-	    module.exports = {
+	    return {
 	        clientToLocal: clientToLocal,
 	        normalizeEvent: normalizeEvent,
 	        addEventListener: addEventListener,
@@ -16948,16 +17043,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // 做向上兼容
 	        Dispatcher: Eventful
 	    };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 84 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	// TODO Draggable for group
+	var __WEBPACK_AMD_DEFINE_RESULT__;// TODO Draggable for group
 	// FIXME Draggable on element which has parent rotation or scale
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	    function Draggable() {
 
 	        this.on('mousedown', this._dragStart, this);
@@ -17036,18 +17131,19 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    };
 
-	    module.exports = Draggable;
-
+	    return Draggable;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 85 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Only implements needed gestures for mobile.
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
+	    'use strict';
 
 	    var eventUtil = __webpack_require__(83);
 
@@ -17161,23 +17257,24 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // Only pinch currently.
 	    };
 
-	    module.exports = GestureMgr;
-
+	    return GestureMgr;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 86 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Storage内容仓库模块
 	 * @module zrender/Storage
 	 * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 * @author errorrik (errorrik@gmail.com)
 	 * @author pissang (https://github.com/pissang/)
 	 */
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
+	    'use strict';
 
 	    var util = __webpack_require__(4);
 	    var env = __webpack_require__(2);
@@ -17434,16 +17531,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	        displayableSortFunc: shapeCompareFunc
 	    };
 
-	    module.exports = Storage;
-
+	    return Storage;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 87 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	// https://github.com/mziccard/node-timsort
-
+	var __WEBPACK_AMD_DEFINE_RESULT__;// https://github.com/mziccard/node-timsort
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	    var DEFAULT_MIN_MERGE = 32;
 
 	    var DEFAULT_MIN_GALLOPING = 7;
@@ -18116,15 +18213,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	        ts.forceMergeRuns();
 	    }
 
-	    module.exports = sort;
-
+	    return sort;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 88 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * 动画主类, 调度和管理所有动画控制器
 	 *
 	 * @module zrender/animation/Animation
@@ -18133,7 +18229,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	// TODO Additive animation
 	// http://iosoteric.com/additive-animations-animatewithduration-in-ios-8/
 	// https://developer.apple.com/videos/wwdc2014/#236
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
+	    'use strict';
 
 	    var util = __webpack_require__(4);
 	    var Dispatcher = __webpack_require__(83).Dispatcher;
@@ -18336,17 +18434,17 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    util.mixin(Animation, Dispatcher);
 
-	    module.exports = Animation;
-
+	    return Animation;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 89 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	
+	var __WEBPACK_AMD_DEFINE_RESULT__;!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 
-	    module.exports = (typeof window !== 'undefined' &&
+	    return (typeof window !== 'undefined' &&
 	                                    (window.requestAnimationFrame
 	                                    || window.msRequestAnimationFrame
 	                                    || window.mozRequestAnimationFrame
@@ -18354,22 +18452,22 @@ return /******/ (function(modules) { // webpackBootstrap
 	                                || function (func) {
 	                                    setTimeout(func, 16);
 	                                };
-
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 90 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * Default canvas painter
 	 * @module zrender/Painter
 	 * @author Kener (@Kener-林峰, kener.linfeng@gmail.com)
 	 *         errorrik (errorrik@gmail.com)
 	 *         pissang (https://www.github.com/pissang)
 	 */
-	 
+	 !(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	    'use strict';
 
 	    var config = __webpack_require__(41);
 	    var util = __webpack_require__(4);
@@ -18804,6 +18902,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	                var el = list[i];
 	                var elZLevel = this._singleCanvas ? 0 : el.zlevel;
 
+	                var elFrame = el.__frame;
+
+	                // Flush at current context
+	                // PENDING
+	                if (elFrame < 0 && currentProgressiveLayer) {
+	                    flushProgressiveLayer(currentProgressiveLayer);
+	                    currentProgressiveLayer = null;
+	                }
+
 	                // Change draw layer
 	                if (currentZLevel !== elZLevel) {
 	                    if (ctx) {
@@ -18834,8 +18941,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	                        currentLayer.clear();
 	                    }
 	                }
-
-	                var elFrame = el.__frame;
 
 	                if (!(currentLayer.__dirty || paintAll)) {
 	                    continue;
@@ -18876,10 +18981,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	                    }
 	                }
 	                else {
-	                    if (currentProgressiveLayer) {
-	                        flushProgressiveLayer(currentProgressiveLayer);
-	                        currentProgressiveLayer = null;
-	                    }
 	                    this._doPaintEl(el, currentLayer, paintAll, scope);
 	                }
 
@@ -19415,22 +19516,23 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Painter;
-
+	    return Painter;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 
 /***/ },
 /* 91 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/**
+	var __WEBPACK_AMD_DEFINE_RESULT__;/**
 	 * @module zrender/Layer
 	 * @author pissang(https://www.github.com/pissang)
 	 */
-
+	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 
 	    var util = __webpack_require__(4);
 	    var config = __webpack_require__(41);
+	    var Style = __webpack_require__(47);
 
 	    function returnFalse() {
 	        return false;
@@ -19599,7 +19701,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var width = dom.width;
 	            var height = dom.height;
 
-	            var haveClearColor = this.clearColor;
+	            var clearColor = this.clearColor;
 	            var haveMotionBLur = this.motionBlur && !clearAll;
 	            var lastFrameAlpha = this.lastFrameAlpha;
 
@@ -19619,9 +19721,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 
 	            ctx.clearRect(0, 0, width / dpr, height / dpr);
-	            if (haveClearColor) {
+	            if (clearColor) {
+	                var clearColorGradient;
+	                if (clearColor.colorStops) {
+	                    // Cache canvas gradient
+	                    clearColorGradient = clearColor.__canvasGradient || Style.getGradient(ctx, clearColor, {
+	                        x: 0,
+	                        y: 0,
+	                        width: width / dpr,
+	                        height: height / dpr
+	                    });
+
+	                    clearColor.__canvasGradient = clearColorGradient;
+	                }
 	                ctx.save();
-	                ctx.fillStyle = this.clearColor;
+	                ctx.fillStyle = clearColorGradient || clearColor;
 	                ctx.fillRect(0, 0, width / dpr, height / dpr);
 	                ctx.restore();
 	            }
@@ -19636,8 +19750,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 
-	    module.exports = Layer;
-
+	    return Layer;
+	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
 /* 92 */
@@ -19748,9 +19862,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	
 	    var Gradient = __webpack_require__(61);
-	    module.exports = function (seriesType, styleType, ecModel) {
+	    module.exports = function (ecModel) {
 	        function encodeColor(seriesModel) {
-	            var colorAccessPath = [styleType, 'normal', 'color'];
+	            var colorAccessPath = (seriesModel.visualColorAccessPath || 'itemStyle.normal.color').split('.');
 	            var data = seriesModel.getData();
 	            var color = seriesModel.get(colorAccessPath) // Set in itemStyle
 	                || seriesModel.getColorFromPalette(seriesModel.get('name'));  // Default color
@@ -19778,8 +19892,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                });
 	            }
 	        }
-	        seriesType ? ecModel.eachRawSeriesByType(seriesType, encodeColor)
-	            : ecModel.eachRawSeries(encodeColor);
+	        ecModel.eachRawSeries(encodeColor);
 	    };
 
 
@@ -20390,6 +20503,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * @param {boolean} stack
 	     */
 	    listProto.getDataExtent = function (dim, stack) {
+	        dim = this.getDimension(dim);
 	        var dimData = this._storage[dim];
 	        var dimInfo = this.getDimensionInfo(dim);
 	        stack = (dimInfo && dimInfo.stackable) && stack;
@@ -20478,6 +20592,32 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 	        }
 
+	        return -1;
+	    };
+
+	    /**
+	     * Retreive the index with given raw data index
+	     * @param {number} idx
+	     * @param {number} name
+	     * @return {number}
+	     */
+	    listProto.indexOfRawIndex = function (rawIndex) {
+	        // Indices are ascending
+	        var indices = this.indices;
+	        var left = 0;
+	        var right = indices.length - 1;
+	        while (left <= right) {
+	            var mid = (left + right) / 2 | 0;
+	            if (indices[mid] < rawIndex) {
+	                left = mid + 1;
+	            }
+	            else if (indices[mid] > rawIndex) {
+	                right = mid - 1;
+	            }
+	            else {
+	                return mid;
+	            }
+	        }
 	        return -1;
 	    };
 
@@ -21359,24 +21499,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	        var creator = creators[coordSysName];
 	        var registeredCoordSys = CoordinateSystem.get(coordSysName);
 	        // FIXME
-	        var result = creator && creator(data, seriesModel, ecModel);
-	        var dimensions = result && result.dimensions;
+	        var axesInfo = creator && creator(data, seriesModel, ecModel);
+	        var dimensions = axesInfo && axesInfo.dimensions;
 	        if (!dimensions) {
 	            // Get dimensions from registered coordinate system
 	            dimensions = (registeredCoordSys && registeredCoordSys.dimensions) || ['x', 'y'];
 	            dimensions = completeDimensions(dimensions, data, dimensions.concat(['value']));
 	        }
-	        var categoryAxisModel = result && result.categoryAxisModel;
-	        var categories;
-
-	        var categoryDimIndex = dimensions[0].type === 'ordinal'
-	            ? 0 : (dimensions[1].type === 'ordinal' ? 1 : -1);
+	        var categoryIndex = axesInfo ? axesInfo.categoryIndex : -1;
 
 	        var list = new List(dimensions, seriesModel);
 
-	        var nameList = createNameList(result, data);
+	        var nameList = createNameList(axesInfo, data);
 
-	        var dimValueGetter = (categoryAxisModel && ifNeedCompleteOrdinalData(data))
+	        var categories = {};
+	        var dimValueGetter = (categoryIndex >= 0 && ifNeedCompleteOrdinalData(data))
 	            ? function (itemOpt, dimName, dataIndex, dimIndex) {
 	                // If any dataItem is like { value: 10 }
 	                if (modelUtil.isDataItemOption(itemOpt)) {
@@ -21384,7 +21521,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 
 	                // Use dataIndex as ordinal value in categoryAxis
-	                return dimIndex === categoryDimIndex
+	                return dimIndex === categoryIndex
 	                    ? dataIndex
 	                    : converDataValue(getDataItemValue(itemOpt), dimensions[dimIndex]);
 	            }
@@ -21396,12 +21533,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	                    list.hasItemOption = true;
 	                }
 
-	                if (categoryDimIndex === dimIndex) {
+	                var categoryAxesModels = axesInfo && axesInfo.categoryAxesModels;
+	                if (categoryAxesModels && categoryAxesModels[dimName]) {
 	                    // If given value is a category string
 	                    if (typeof val === 'string') {
 	                        // Lazy get categories
-	                        categories = categories || categoryAxisModel.getCategories();
-	                        val = zrUtil.indexOf(categories, val);
+	                        categories[dimName] = categories[dimName]
+	                            || categoryAxesModels[dimName].getCategories();
+	                        val = zrUtil.indexOf(categories[dimName], val);
 	                        if (val < 0 && !isNaN(val)) {
 	                            // In case some one write '1', '2' istead of 1, 2
 	                            val = +val;
@@ -21466,15 +21605,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	            ];
 
 	            var isXAxisCateogry = xAxisType === 'category';
+	            var isYAxisCategory = yAxisType === 'category';
 
 	            completeDimensions(dimensions, data, ['x', 'y', 'z']);
 
+	            var categoryAxesModels = {};
+	            if (isXAxisCateogry) {
+	                categoryAxesModels.x = xAxisModel;
+	            }
+	            if (isYAxisCategory) {
+	                categoryAxesModels.y = yAxisModel;
+	            }
 	            return {
 	                dimensions: dimensions,
-	                categoryIndex: isXAxisCateogry ? 0 : 1,
-	                categoryAxisModel: isXAxisCateogry
-	                    ? xAxisModel
-	                    : (yAxisType === 'category' ? yAxisModel : null)
+	                categoryIndex: isXAxisCateogry ? 0 : (isYAxisCategory ? 1 : -1),
+	                categoryAxesModels: categoryAxesModels
 	            };
 	        },
 
@@ -21517,15 +21662,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 	            ];
 	            var isAngleAxisCateogry = angleAxisType === 'category';
+	            var isRadiusAxisCateogry = radiusAxisType === 'category';
 
 	            completeDimensions(dimensions, data, ['radius', 'angle', 'value']);
 
+	            var categoryAxesModels = {};
+	            if (isRadiusAxisCateogry) {
+	                categoryAxesModels.radius = radiusAxisModel;
+	            }
+	            if (isAngleAxisCateogry) {
+	                categoryAxesModels.angle = angleAxisModel;
+	            }
 	            return {
 	                dimensions: dimensions,
-	                categoryIndex: isAngleAxisCateogry ? 1 : 0,
-	                categoryAxisModel: isAngleAxisCateogry
-	                    ? angleAxisModel
-	                    : (radiusAxisType === 'category' ? radiusAxisModel : null)
+	                categoryIndex: isAngleAxisCateogry ? 1 : (isRadiusAxisCateogry ? 0 : -1),
+	                categoryAxesModels: categoryAxesModels
 	            };
 	        },
 
@@ -21859,6 +22010,93 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return stepPoints;
 	    }
 
+	    function clamp(number, extent) {
+	        return Math.max(Math.min(number, extent[1]), extent[0]);
+	    }
+
+	    function getVisualGradient(data, coordSys) {
+	        var visualMetaList = data.getVisual('visualMeta');
+	        if (!visualMetaList || !visualMetaList.length) {
+	            return;
+	        }
+
+	        var visualMeta;
+	        for (var i = visualMetaList.length - 1; i >= 0; i--) {
+	            // Can only be x or y
+	            if (visualMetaList[i].dimension < 2) {
+	                visualMeta = visualMetaList[i];
+	                break;
+	            }
+	        }
+	        if (!visualMeta || coordSys.type !== 'cartesian2d') {
+	            if (true) {
+	                console.warn('Visual map on line style only support x or y dimension.');
+	            }
+	            return;
+	        }
+	        var dimension = visualMeta.dimension;
+	        var dimName = data.dimensions[dimension];
+	        var dataExtent = data.getDataExtent(dimName);
+
+	        var stops = visualMeta.stops;
+
+	        var colorStops = [];
+	        if (stops[0].interval) {
+	            stops.sort(function (a, b) {
+	                return a.interval[0] - b.interval[0];
+	            });
+	        }
+
+	        var firstStop = stops[0];
+	        var lastStop = stops[stops.length - 1];
+	        // Interval can be infinity in piecewise case
+	        var min = firstStop.interval ? clamp(firstStop.interval[0], dataExtent) : firstStop.value;
+	        var max = lastStop.interval ? clamp(lastStop.interval[1], dataExtent) : lastStop.value;
+	        var stopsSpan = max - min;
+	        for (var i = 0; i < stops.length; i++) {
+	            // Piecewise
+	            if (stops[i].interval) {
+	                if (stops[i].interval[1] === stops[i].interval[0]) {
+	                    continue;
+	                }
+	                colorStops.push({
+	                    // Make sure offset is between 0 and 1
+	                    offset: (clamp(stops[i].interval[0], dataExtent) - min) / stopsSpan,
+	                    color: stops[i].color
+	                }, {
+	                    offset: (clamp(stops[i].interval[1], dataExtent) - min) / stopsSpan,
+	                    color: stops[i].color
+	                });
+	            }
+	            // Continous
+	            else {
+	                // if (i > 0 && stops[i].value === stops[i - 1].value) {
+	                //     continue;
+	                // }
+	                colorStops.push({
+	                    offset: (stops[i].value - min) / stopsSpan,
+	                    color: stops[i].color
+	                });
+	            }
+	        }
+	        var gradient = new graphic.LinearGradient(
+	            0, 0, 0, 0, colorStops, true
+	        );
+	        var axis = coordSys.getAxis(dimName);
+
+	        var start = Math.round(axis.toGlobalCoord(axis.dataToCoord(min)));
+	        var end = Math.round(axis.toGlobalCoord(axis.dataToCoord(max)));
+	        zrUtil.each(colorStops, function (colorStop) {
+	            // Make sure each offset has rounded px to avoid not sharp edge
+	            colorStop.offset = (Math.round(colorStop.offset * (end - start) + start) - start) / (end - start);
+	        });
+
+	        gradient[dimName] = start;
+	        gradient[dimName + '2'] = end;
+
+	        return gradient;
+	    }
+
 	    module.exports = ChartView.extend({
 
 	        type: 'line',
@@ -21989,12 +22227,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 	            }
 
+	            var visualColor = getVisualGradient(data, coordSys) || data.getVisual('color');
 	            polyline.useStyle(zrUtil.defaults(
 	                // Use color in lineStyle first
 	                lineStyleModel.getLineStyle(),
 	                {
 	                    fill: 'none',
-	                    stroke: data.getVisual('color'),
+	                    stroke: visualColor,
 	                    lineJoin: 'bevel'
 	                }
 	            ));
@@ -22014,7 +22253,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                polygon.useStyle(zrUtil.defaults(
 	                    areaStyleModel.getAreaStyle(),
 	                    {
-	                        fill: data.getVisual('color'),
+	                        fill: visualColor,
 	                        opacity: 0.7,
 	                        lineJoin: 'bevel'
 	                    }
@@ -22045,7 +22284,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var data = seriesModel.getData();
 	            var dataIndex = queryDataIndex(data, payload);
 
-	            if (dataIndex != null && dataIndex >= 0) {
+	            if (!(dataIndex instanceof Array) && dataIndex != null && dataIndex >= 0) {
 	                var symbol = data.getItemGraphicEl(dataIndex);
 	                if (!symbol) {
 	                    // Create a temporary symbol if it is not exists
@@ -23907,8 +24146,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	    };
 
 	    gridProto.getCartesian = function (xAxisIndex, yAxisIndex) {
-	        var key = 'x' + xAxisIndex + 'y' + yAxisIndex;
-	        return this._coordsMap[key];
+	        if (xAxisIndex != null && yAxisIndex != null) {
+	            var key = 'x' + xAxisIndex + 'y' + yAxisIndex;
+	            return this._coordsMap[key];
+	        }
+	        else {
+	            // When only xAxisIndex or yAxisIndex given, find its first cartesian.
+	            for (var i = 0, coordList = this._coordsList; i < coordList.length; i++) {
+	                if (coordList[i].getAxis('x').index === xAxisIndex
+	                    || coordList[i].getAxis('y').index === yAxisIndex
+	                ) {
+	                    return coordList[i];
+	                }
+	            }
+	        }
 	    };
 
 	    /**
@@ -24008,6 +24259,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	                // Inject axisModel into axis
 	                axis.model = axisModel;
+
+	                // Inject grid info axis
+	                axis.grid = this;
 
 	                // Index of axis, can be used as key
 	                axis.index = idx;
@@ -24298,6 +24552,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            // Simple optimization for large amount of labels
 	            step = Math.floor(labels.length / 40);
 	        }
+
 	        for (var i = 0; i < tickCoords.length; i += step) {
 	            var tickCoord = tickCoords[i];
 	            var rect = textContain.getBoundingRect(
@@ -24305,7 +24560,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            );
 	            rect[isAxisHorizontal ? 'x' : 'y'] += tickCoord;
 	            // FIXME Magic number 1.5
-	            rect[isAxisHorizontal ? 'width' : 'height'] *= 1.5;
+	            rect[isAxisHorizontal ? 'width' : 'height'] *= 1.3;
 	            if (!textSpaceTakenRect) {
 	                textSpaceTakenRect = rect.clone();
 	            }
@@ -24323,7 +24578,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        if (autoLabelInterval === 0 && step > 1) {
 	            return step;
 	        }
-	        return autoLabelInterval * step;
+	        return (autoLabelInterval + 1) * step - 1;
 	    };
 
 	    /**
@@ -25959,6 +26214,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        nameGap: 15,
 	        // 是否能触发鼠标事件
 	        silent: true,
+
 	        // 坐标轴线
 	        axisLine: {
 	            // 默认显示，属性show控制显示与否
@@ -25981,7 +26237,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	            length: 5,
 	            // 属性lineStyle控制线条样式
 	            lineStyle: {
-	                color: '#333',
 	                width: 1
 	            }
 	        },
@@ -25995,7 +26250,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	            // formatter: null,
 	            // 其余属性默认使用全局文本样式，详见TEXTSTYLE
 	            textStyle: {
-	                color: '#333',
 	                fontSize: 12
 	            }
 	        },
@@ -26158,6 +26412,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            this.group.removeAll();
 
+	            var oldAxisGroup = this._axisGroup;
+	            this._axisGroup = new graphic.Group();
+
+	            this.group.add(this._axisGroup);
+
 	            if (!axisModel.get('show')) {
 	                return;
 	            }
@@ -26170,13 +26429,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            zrUtil.each(axisBuilderAttrs, axisBuilder.add, axisBuilder);
 
-	            this.group.add(axisBuilder.getGroup());
+	            this._axisGroup.add(axisBuilder.getGroup());
 
 	            zrUtil.each(selfBuilderAttrs, function (name) {
-	                if (axisModel.get(name +'.show')) {
+	                if (axisModel.get(name + '.show')) {
 	                    this['_' + name](axisModel, gridModel, layout.labelInterval);
 	                }
 	            }, this);
+
+	            graphic.groupTransition(oldAxisGroup, this._axisGroup, axisModel);
 	        },
 
 	        /**
@@ -26190,7 +26451,6 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            var splitLineModel = axisModel.getModel('splitLine');
 	            var lineStyleModel = splitLineModel.getModel('lineStyle');
-	            var lineWidth = lineStyleModel.get('width');
 	            var lineColors = lineStyleModel.get('color');
 
 	            var lineInterval = getInterval(splitLineModel, labelInterval);
@@ -26200,13 +26460,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var gridRect = gridModel.coordinateSystem.getRect();
 	            var isHorizontal = axis.isHorizontal();
 
-	            var splitLines = [];
 	            var lineCount = 0;
 
 	            var ticksCoords = axis.getTicksCoords();
+	            var ticks = axis.scale.getTicks();
 
 	            var p1 = [];
 	            var p2 = [];
+	            // Simple optimization
+	            // Batching the lines if color are the same
+	            var lineStyle = lineStyleModel.getLineStyle();
 	            for (var i = 0; i < ticksCoords.length; i++) {
 	                if (ifIgnoreOnTick(axis, i, lineInterval)) {
 	                    continue;
@@ -26228,31 +26491,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 
 	                var colorIndex = (lineCount++) % lineColors.length;
-	                splitLines[colorIndex] = splitLines[colorIndex] || [];
-	                splitLines[colorIndex].push(new graphic.Line(graphic.subPixelOptimizeLine({
+	                this._axisGroup.add(new graphic.Line(graphic.subPixelOptimizeLine({
+	                    anid: 'line_' + ticks[i],
+
 	                    shape: {
 	                        x1: p1[0],
 	                        y1: p1[1],
 	                        x2: p2[0],
 	                        y2: p2[1]
 	                    },
-	                    style: {
-	                        lineWidth: lineWidth
-	                    },
-	                    silent: true
-	                })));
-	            }
-
-	            // Simple optimization
-	            // Batching the lines if color are the same
-	            var lineStyle = lineStyleModel.getLineStyle();
-	            for (var i = 0; i < splitLines.length; i++) {
-	                this.group.add(graphic.mergePath(splitLines[i], {
 	                    style: zrUtil.defaults({
-	                        stroke: lineColors[i % lineColors.length]
+	                        stroke: lineColors[colorIndex]
 	                    }, lineStyle),
 	                    silent: true
-	                }));
+	                })));
 	            }
 	        },
 
@@ -26271,15 +26523,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            var gridRect = gridModel.coordinateSystem.getRect();
 	            var ticksCoords = axis.getTicksCoords();
+	            var ticks = axis.scale.getTicks();
 
 	            var prevX = axis.toGlobalCoord(ticksCoords[0]);
 	            var prevY = axis.toGlobalCoord(ticksCoords[0]);
 
-	            var splitAreaRects = [];
 	            var count = 0;
 
 	            var areaInterval = getInterval(splitAreaModel, labelInterval);
 
+	            var areaStyle = areaStyleModel.getAreaStyle();
 	            areaColors = zrUtil.isArray(areaColors) ? areaColors : [areaColors];
 
 	            for (var i = 1; i < ticksCoords.length; i++) {
@@ -26307,31 +26560,23 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 
 	                var colorIndex = (count++) % areaColors.length;
-	                splitAreaRects[colorIndex] = splitAreaRects[colorIndex] || [];
-	                splitAreaRects[colorIndex].push(new graphic.Rect({
+	                this._axisGroup.add(new graphic.Rect({
+	                    anid: 'area_' + ticks[i],
+
 	                    shape: {
 	                        x: x,
 	                        y: y,
 	                        width: width,
 	                        height: height
 	                    },
+	                    style: zrUtil.defaults({
+	                        fill: areaColors[colorIndex]
+	                    }, areaStyle),
 	                    silent: true
 	                }));
 
 	                prevX = x + width;
 	                prevY = y + height;
-	            }
-
-	            // Simple optimization
-	            // Batching the rects if color are the same
-	            var areaStyle = areaStyleModel.getAreaStyle();
-	            for (var i = 0; i < splitAreaRects.length; i++) {
-	                this.group.add(graphic.mergePath(splitAreaRects[i], {
-	                    style: zrUtil.defaults({
-	                        fill: areaColors[i % areaColors.length]
-	                    }, areaStyle),
-	                    silent: true
-	                }));
 	            }
 	        }
 	    });
@@ -26378,8 +26623,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        ];
 
 	        // Axis rotation
-	        var r = {x: 0, y: 1};
-	        layout.rotation = Math.PI / 2 * r[axisDim];
+	        layout.rotation = Math.PI / 2 * (axisDim === 'x' ? 0 : 1);
 
 	        // Tick and label direction, x y is axisDim
 	        var dirMap = {top: -1, bottom: 1, left: -1, right: 1};
@@ -26422,6 +26666,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var numberUtil = __webpack_require__(7);
 	    var remRadian = numberUtil.remRadian;
 	    var isRadianAroundZero = numberUtil.isRadianAroundZero;
+	    var vec2 = __webpack_require__(16);
+	    var v2ApplyTransform = vec2.applyTransform;
 
 	    var PI = Math.PI;
 
@@ -26498,10 +26744,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	        /**
 	         * @readOnly
 	         */
-	        this.group = new graphic.Group({
+	        this.group = new graphic.Group();
+
+	        // FIXME Not use a seperate text group?
+	        var dumbGroup = new graphic.Group({
 	            position: opt.position.slice(),
 	            rotation: opt.rotation
 	        });
+
+	        // this.group.add(dumbGroup);
+	        // this._dumbGroup = dumbGroup;
+
+	        dumbGroup.updateTransform();
+	        this._transform = dumbGroup.transform;
+
+	        this._dumbGroup = dumbGroup;
 	    };
 
 	    AxisBuilder.prototype = {
@@ -26537,12 +26794,20 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            var extent = this.axisModel.axis.getExtent();
 
-	            this.group.add(new graphic.Line({
+	            var matrix = this._transform;
+	            var pt1 = v2ApplyTransform([], [extent[0], 0], matrix);
+	            var pt2 = v2ApplyTransform([], [extent[1], 0], matrix);
+
+	            this.group.add(new graphic.Line(graphic.subPixelOptimizeLine({
+
+	                // Id for animation
+	                anid: 'line',
+
 	                shape: {
-	                    x1: extent[0],
-	                    y1: 0,
-	                    x2: extent[1],
-	                    y2: 0
+	                    x1: pt1[0],
+	                    y1: pt1[1],
+	                    x2: pt2[0],
+	                    y2: pt2[1]
 	                },
 	                style: zrUtil.extend(
 	                    {lineCap: 'round'},
@@ -26551,7 +26816,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                strokeContainThreshold: opt.strokeContainThreshold,
 	                silent: !!opt.axisLineSilent,
 	                z2: 1
-	            }));
+	            })));
 	        },
 
 	        /**
@@ -26572,8 +26837,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var tickLen = tickModel.get('length');
 	            var tickInterval = getInterval(tickModel, opt.labelInterval);
 	            var ticksCoords = axis.getTicksCoords();
-	            var tickLines = [];
+	            var ticks = axis.scale.getTicks();
 
+	            var pt1 = [];
+	            var pt2 = [];
+	            var matrix = this._transform;
 	            for (var i = 0; i < ticksCoords.length; i++) {
 	                // Only ordinal scale support tick interval
 	                if (ifIgnoreOnTick(axis, i, tickInterval)) {
@@ -26582,26 +26850,35 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	                var tickCoord = ticksCoords[i];
 
-	                // Tick line
-	                tickLines.push(new graphic.Line(graphic.subPixelOptimizeLine({
+	                pt1[0] = tickCoord;
+	                pt1[1] = 0;
+	                pt2[0] = tickCoord;
+	                pt2[1] = opt.tickDirection * tickLen;
+
+	                v2ApplyTransform(pt1, pt1, matrix);
+	                v2ApplyTransform(pt2, pt2, matrix);
+	                // Tick line, Not use group transform to have better line draw
+	                this.group.add(new graphic.Line(graphic.subPixelOptimizeLine({
+
+	                    // Id for animation
+	                    anid: 'tick_' + ticks[i],
+
 	                    shape: {
-	                        x1: tickCoord,
-	                        y1: 0,
-	                        x2: tickCoord,
-	                        y2: opt.tickDirection * tickLen
+	                        x1: pt1[0],
+	                        y1: pt1[1],
+	                        x2: pt2[0],
+	                        y2: pt2[1]
 	                    },
-	                    style: {
-	                        lineWidth: lineStyleModel.get('width')
-	                    },
+	                    style: zrUtil.defaults(
+	                        lineStyleModel.getLineStyle(),
+	                        {
+	                            stroke: axisModel.get('axisLine.lineStyle.color')
+	                        }
+	                    ),
+	                    z2: 2,
 	                    silent: true
 	                })));
 	            }
-
-	            this.group.add(graphic.mergePath(tickLines, {
-	                style: lineStyleModel.getLineStyle(),
-	                z2: 2,
-	                silent: true
-	            }));
 	        },
 
 	        /**
@@ -26648,7 +26925,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	                        categoryData[i].textStyle, textStyleModel, axisModel.ecModel
 	                    );
 	                }
-	                var textColor = itemTextStyleModel.getTextColor();
+	                var textColor = itemTextStyleModel.getTextColor()
+	                    || axisModel.get('axisLine.lineStyle.color');
 
 	                var tickCoord = axis.dataToCoord(ticks[i]);
 	                var pos = [
@@ -26658,6 +26936,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	                var labelBeforeFormat = axis.scale.getLabel(ticks[i]);
 
 	                var textEl = new graphic.Text({
+
+	                    // Id for animation
+	                    anid: 'label_' + ticks[i],
+
 	                    style: {
 	                        text: labels[i],
 	                        textAlign: itemTextStyleModel.get('align', true) || labelLayout.textAlign,
@@ -26675,8 +26957,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	                textEl.eventData.targetType = 'axisLabel';
 	                textEl.eventData.value = labelBeforeFormat;
 
+
+	                // FIXME
+	                this._dumbGroup.add(textEl);
+	                textEl.updateTransform();
+
 	                textEls.push(textEl);
 	                this.group.add(textEl);
+
+	                textEl.decomposeTransform();
 	            }
 
 	            function isTwoLabelOverlapped(current, next) {
@@ -26753,6 +27042,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 
 	            var textEl = new graphic.Text({
+
+	                // Id for animation
+	                anid: 'name',
+
 	                style: {
 	                    text: name,
 	                    textFont: textStyleModel.getFont(),
@@ -26771,7 +27064,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	            textEl.eventData.targetType = 'axisName';
 	            textEl.eventData.name = name;
 
+	            // FIXME
+	            this._dumbGroup.add(textEl);
+	            textEl.updateTransform();
+
 	            this.group.add(textEl);
+
+	            textEl.decomposeTransform();
 	        }
 
 	    };
@@ -26980,17 +27279,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	                normal: {
 	                    // color: '各异',
 	                    // 柱条边线
-	                    barBorderColor: '#fff',
+	                    borderColor: '#fff',
 	                    // 柱条边线线宽，单位px，默认为1
-	                    barBorderWidth: 0
+	                    borderWidth: 0
 	                },
-	                emphasis: {
-	                    // color: '各异',
-	                    // 柱条边线
-	                    barBorderColor: '#fff',
-	                    // 柱条边线线宽，单位px，默认为1
-	                    barBorderWidth: 0
-	                }
+	                emphasis: {}
 	            }
 	        }
 	    });
@@ -27220,22 +27513,32 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
 	
+
+
+	    var getBarItemStyle = __webpack_require__(11)(
+	        [
+	            ['fill', 'color'],
+	            ['stroke', 'borderColor'],
+	            ['lineWidth', 'borderWidth'],
+	            // Compatitable with 2
+	            ['stroke', 'barBorderColor'],
+	            ['lineWidth', 'barBorderWidth'],
+	            ['opacity'],
+	            ['shadowBlur'],
+	            ['shadowOffsetX'],
+	            ['shadowOffsetY'],
+	            ['shadowColor']
+	        ]
+	    );
 	    module.exports = {
-	        getBarItemStyle: __webpack_require__(11)(
-	            [
-	                ['fill', 'color'],
-	                ['stroke', 'borderColor'],
-	                ['lineWidth', 'borderWidth'],
-	                // Compatitable with 2
-	                ['stroke', 'barBorderColor'],
-	                ['lineWidth', 'barBorderWidth'],
-	                ['opacity'],
-	                ['shadowBlur'],
-	                ['shadowOffsetX'],
-	                ['shadowOffsetY'],
-	                ['shadowColor']
-	            ]
-	        )
+	        getBarItemStyle: function (excludes) {
+	            var style = getBarItemStyle.call(this, excludes);
+	            if (this.getBorderLineDash) {
+	                var lineDash = this.getBorderLineDash();
+	                lineDash && (style.lineDash = lineDash);
+	            }
+	            return style;
+	        }
 	    };
 
 

@@ -35,7 +35,11 @@ define(function (require) {
                 // Scale of ripple
                 scale: 2.5,
                 // Brush type can be fill or stroke
-                brushType: 'fill'
+                brushType: 'fill',
+                // Ripple num
+                rippleNum: 3,
+                // Ripple width
+                rippleWidth: 1
             },
 
             // Cartesian coordinate system
