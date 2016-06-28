@@ -44313,13 +44313,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	                .when(effectCfg.period, {
 	                    scale: [effectCfg.rippleScale, effectCfg.rippleScale]
 	                })
-	                .delay(delay)
+	                .delay(delay % effectCfg.period)
 	                .start();
 	            ripplePath.animateStyle(true)
 	                .when(effectCfg.period, {
 	                    opacity: 0
 	                })
-	                .delay(delay)
+	                .delay(delay % effectCfg.period)
 	                .start();
 
 	            rippleGroup.add(ripplePath);
@@ -44350,7 +44350,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                .when(effectCfg.period, {
 	                    scale: [1, 1]
 	                })
-	                .delay(effectCfg.effectOffset + effectCfg.delay)
+	                .delay((effectCfg.effectOffset + effectCfg.delay) % effectCfg.period)
 	                .start();
 	                
 	            // 
