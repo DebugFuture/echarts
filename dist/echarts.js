@@ -44158,7 +44158,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	                centerEffect: {
 	                    show: false,
 	                    scale: 4
-	                }
+	                },
+	                // delay
+	                delay: 0
 	            },
 
 	            // Cartesian coordinate system
@@ -44305,7 +44307,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                scale: [1, 1]
 	            });
 
-	            var delay = -i / effectCfg.rippleNum * effectCfg.period + effectCfg.effectOffset;
+	            var delay = -i / effectCfg.rippleNum * effectCfg.period + effectCfg.effectOffset + effectCfg.delay;
 	            // TODO Configurable effectCfg.period
 	            ripplePath.animate('', true)
 	                .when(effectCfg.period, {
@@ -44348,6 +44350,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                .when(effectCfg.period, {
 	                    scale: [1, 1]
 	                })
+	                .delay(effectCfg.effectOffset + effectCfg.delay)
 	                .start();
 	                
 	            // 
@@ -44434,6 +44437,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        effectCfg.rippleWidth = itemModel.get('rippleEffect.rippleWidth');
 	        effectCfg.brushType = itemModel.get('rippleEffect.brushType');
 	        effectCfg.period = itemModel.get('rippleEffect.period') * 1000;
+	        effectCfg.delay = itemModel.get('rippleEffect.delay') * 1000;
 	        effectCfg.effectOffset = idx / data.count();
 	        effectCfg.z = itemModel.getShallow('z') || 0;
 	        effectCfg.zlevel = itemModel.getShallow('zlevel') || 0;

@@ -44,7 +44,9 @@ define(function (require) {
                 centerEffect: {
                     show: false,
                     scale: 4
-                }
+                },
+                // delay
+                delay: 0
             },
 
             // Cartesian coordinate system
