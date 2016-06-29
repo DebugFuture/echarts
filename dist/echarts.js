@@ -18416,19 +18416,26 @@ return /******/ (function(modules) { // webpackBootstrap
 	        },
 	        /**
 	         * 开始运行动画
+	         * @param {int} performanceImpactNum 动画性能较差，导致CPU利用率100%，风扇狂转，可调高performanceImpactNum，取值自然数，越大则性能约好，但动画效果越差。默认值为3。
 	         */
-	        start: function () {
+	        start: function (performanceImpactNum) {
+	            performanceImpactNum = performanceImpactNum ? performanceImpactNum : 3;
+	            
 	            var self = this;
 
 	            this._running = true;
-
+	            
+	            this._runNum = 0;
 	            function step() {
 	                if (self._running) {
-
 	                    requestAnimationFrame(step);
-
-	                    self._update();
+	                    
+	                    if (performanceImpactNum === 0 || self._runNum % performanceImpactNum === 0) {
+	                        self._update();
+	                    }
 	                }
+	                
+	                self._runNum++;
 	            }
 
 	            this._time = new Date().getTime();
