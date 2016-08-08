@@ -1,0 +1,13 @@
+{
+  "name": "mm-echarts",
+  "version": "0.0.1",
+  "description": "customize echarts",
+  "main": "dist/echarts.js",
+  "ignore": [
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/DebugFuture/echarts.git"
+  }
+}
