@@ -1,6 +1,6 @@
 {
   "name": "echarts",
-  "version": "3.1.10.1",
+  "version": "3.1.10",
   "description": "A powerful charting and visualization library for browser",
   "keywords": [
     "visualization",
