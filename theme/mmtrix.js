@@ -44,6 +44,13 @@
                 "color": "#555555"
             }
         },
+        "grid": {
+            "borderWidth": "0",
+            "left": "0",
+            "right": "0",
+            "top": "35",
+            "bottom": "35"
+        },
         "line": {
             "itemStyle": {
                 "normal": {
@@ -323,6 +330,8 @@
             },
             "axisLabel": {
                 "show": true,
+                "inside": true,
+                "margin": "0",
                 "textStyle": {
                     "color": "#555555"
                 }
@@ -330,6 +339,7 @@
             "splitLine": {
                 "show": true,
                 "lineStyle": {
+                    "type": "dashed",
                     "color": [
                         "#eeeeee"
                     ]
@@ -398,11 +408,12 @@
             "axisLabel": {
                 "show": true,
                 "textStyle": {
-                    "color": "#555555"
+                    "color": "#555555",
+                    "align": "right"
                 }
             },
             "splitLine": {
-                "show": true,
+                "show": false,
                 "lineStyle": {
                     "color": [
                         "#eeeeee"
