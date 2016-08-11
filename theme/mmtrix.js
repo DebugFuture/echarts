@@ -52,6 +52,7 @@
             "bottom": "35"
         },
         "line": {
+            "animation": false,
             "itemStyle": {
                 "normal": {
                     "borderWidth": "1.5"
@@ -67,6 +68,7 @@
             "smooth": false
         },
         "radar": {
+            "animation": false,
             "itemStyle": {
                 "normal": {
                     "borderWidth": "1.5"
@@ -82,6 +84,7 @@
             "smooth": false
         },
         "bar": {
+            "animation": false,
             "itemStyle": {
                 "normal": {
                     "barBorderWidth": "0",
@@ -94,6 +97,7 @@
             }
         },
         "pie": {
+            "animation": false,
             "itemStyle": {
                 "normal": {
                     "borderWidth": "0",
@@ -106,6 +110,7 @@
             }
         },
         "scatter": {
+            "animation": false,
             "itemStyle": {
                 "normal": {
                     "borderWidth": "0",
